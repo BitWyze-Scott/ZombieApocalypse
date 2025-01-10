@@ -31,6 +31,9 @@ class GameScene: SKScene {
         // Set up player
         player = childNode(withName: "player") as? SKSpriteNode
         
+        // Set up goal
+        goal = childNode(withName: "goal") as? SKSpriteNode
+
         // Set up zombies
         for child in self.children {
           if child.name == "zombie" {
