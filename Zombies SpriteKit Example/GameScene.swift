@@ -10,100 +10,185 @@ import GameplayKit
 
 class GameScene: SKScene {
     
-    var entities = [GKEntity]()
-    var graphs = [String : GKGraph]()
+    // MARK: - Instance Variables
+
+    let playerSpeed: CGFloat = 150.0
+    let zombieSpeed: CGFloat = 75.0
+
+    var goal: SKSpriteNode?
+    var player: SKSpriteNode?
+    var zombies: [SKSpriteNode] = []
+
+    var lastTouch: CGPoint? = nil
     
-    private var lastUpdateTime : TimeInterval = 0
-    private var label : SKLabelNode?
-    private var spinnyNode : SKShapeNode?
+    override func didMove(to view: SKView) {
+        // Set up physics world's contact delegate
+        physicsWorld.contactDelegate = self
+        
+        // Set up initial camera position
+        updateCamera()
+        
+        // Set up player
+        player = childNode(withName: "player") as? SKSpriteNode
+        
+        // Set up zombies
+        for child in self.children {
+          if child.name == "zombie" {
+            if let child = child as? SKSpriteNode {
+              zombies.append(child)
+            }
+          }
+        }
+    }
+    
     
     override func sceneDidLoad() {
 
-        self.lastUpdateTime = 0
-        
-        // Get label node from scene and store it for use later
-        self.label = self.childNode(withName: "//helloLabel") as? SKLabelNode
-        if let label = self.label {
-            label.alpha = 0.0
-            label.run(SKAction.fadeIn(withDuration: 2.0))
-        }
-        
-        // Create shape node to use during mouse interaction
-        let w = (self.size.width + self.size.height) * 0.05
-        self.spinnyNode = SKShapeNode.init(rectOf: CGSize.init(width: w, height: w), cornerRadius: w * 0.3)
-        
-        if let spinnyNode = self.spinnyNode {
-            spinnyNode.lineWidth = 2.5
-            
-            spinnyNode.run(SKAction.repeatForever(SKAction.rotate(byAngle: CGFloat(Double.pi), duration: 1)))
-            spinnyNode.run(SKAction.sequence([SKAction.wait(forDuration: 0.5),
-                                              SKAction.fadeOut(withDuration: 0.5),
-                                              SKAction.removeFromParent()]))
-        }
+       
     }
     
     
     func touchDown(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.green
-            self.addChild(n)
-        }
+      
     }
     
     func touchMoved(toPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.blue
-            self.addChild(n)
-        }
+       
     }
     
     func touchUp(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.red
-            self.addChild(n)
-        }
+       
     }
     
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let label = self.label {
-            label.run(SKAction.init(named: "Pulse")!, withKey: "fadeInOut")
-        }
-        
-        for t in touches { self.touchDown(atPoint: t.location(in: self)) }
+        handleTouches(touches)
     }
     
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchMoved(toPoint: t.location(in: self)) }
+        handleTouches(touches)
     }
     
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
+        handleTouches(touches)
+    }
+    
+    fileprivate func handleTouches(_ touches: Set<UITouch>) {
+        lastTouch = touches.first?.location(in: self)
     }
     
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         for t in touches { self.touchUp(atPoint: t.location(in: self)) }
     }
     
-    
     override func update(_ currentTime: TimeInterval) {
         // Called before each frame is rendered
         
-        // Initialize _lastUpdateTime if it has not already been
-        if (self.lastUpdateTime == 0) {
-            self.lastUpdateTime = currentTime
+       
+    }
+    
+    // MARK: App Specific Functionality
+    
+    override func didSimulatePhysics() {
+        if player != nil {
+            updatePlayer()
+            updateZombies()
         }
-        
-        // Calculate time since last update
-        let dt = currentTime - self.lastUpdateTime
-        
-        // Update entities
-        for entity in self.entities {
-            entity.update(deltaTime: dt)
+    }
+    
+    // Determines whether the player's position should be updated
+    fileprivate func shouldMove(currentPosition: CGPoint,
+                                touchPosition: CGPoint) -> Bool {
+        guard let player = player else { return false }
+        return abs(currentPosition.x - touchPosition.x) > player.frame.width / 2 ||
+        abs(currentPosition.y - touchPosition.y) > player.frame.height / 2
+    }
+    
+    fileprivate func updatePlayer() {
+        guard let player = player,
+              let touch = lastTouch
+        else { return }
+        let currentPosition = player.position
+        if shouldMove(currentPosition: currentPosition,
+                      touchPosition: touch) {
+            updatePosition(for: player, to: touch, speed: playerSpeed)
+            updateCamera()
+        } else {
+            player.physicsBody?.isResting = true
         }
-        
-        self.lastUpdateTime = currentTime
+    }
+    
+    fileprivate func updateCamera() {
+      guard let player = player else { return }
+      camera?.position = player.position
+    }
+
+    // Updates the position of all zombies by moving towards the player
+    func updateZombies() {
+      guard let player = player else { return }
+      let targetPosition = player.position
+
+      for zombie in zombies {
+        updatePosition(for: zombie, to: targetPosition, speed: zombieSpeed)
+      }
+    }
+
+    fileprivate func updatePosition(for sprite: SKSpriteNode,
+                                    to target: CGPoint,
+                                    speed: CGFloat) {
+      let currentPosition = sprite.position
+      let angle = CGFloat.pi + atan2(currentPosition.y - target.y,
+                                     currentPosition.x - target.x)
+      let rotateAction = SKAction.rotate(toAngle: angle + (CGFloat.pi*0.5),
+                                         duration: 0)
+      sprite.run(rotateAction)
+
+      let velocityX = speed * cos(angle)
+      let velocityY = speed * sin(angle)
+
+      let newVelocity = CGVector(dx: velocityX, dy: velocityY)
+      sprite.physicsBody?.velocity = newVelocity
+    }
+    
+
+}
+
+
+// MARK: - SKPhysicsContactDelegate
+
+extension GameScene: SKPhysicsContactDelegate {
+  func didBegin(_ contact: SKPhysicsContact) {
+    // 1. Create local variables for two physics bodies
+    var firstBody: SKPhysicsBody
+    var secondBody: SKPhysicsBody
+
+    // 2. Assign the two physics bodies so that the one with the
+    // lower category is always stored in firstBody
+    if contact.bodyA.categoryBitMask < contact.bodyB.categoryBitMask {
+      firstBody = contact.bodyA
+      secondBody = contact.bodyB
+    } else {
+      firstBody = contact.bodyB
+      secondBody = contact.bodyA
+    }
+
+    // 3. react to the contact between the two nodes
+    if firstBody.categoryBitMask == player?.physicsBody?.categoryBitMask &&
+      secondBody.categoryBitMask == zombies[0].physicsBody?.categoryBitMask {
+      // Player & Zombie
+      gameOver(false)
+    } else if firstBody.categoryBitMask == player?.physicsBody?.categoryBitMask &&
+      secondBody.categoryBitMask == goal?.physicsBody?.categoryBitMask {
+      // Player & Goal
+      gameOver(true)
+    }
+  }
+
+  // MARK: - Helper Functions
+
+    fileprivate func gameOver(_ didWin: Bool) {
+        print("TODO: implement this")
+        let menuScene = MenuScene(size: size, didWin: didWin)
+        let transition = SKTransition.flipVertical(withDuration: 1.0)
+        view?.presentScene(menuScene, transition: transition)
     }
 }
